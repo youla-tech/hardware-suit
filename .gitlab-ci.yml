@@ -1,0 +1,79 @@
+variables:
+  GITLAB_PAGES_SERVER_DIR: '/usr/local/nginx1159/html/gitlab/shared/pages'
+stages:
+  - setup
+  - build
+  - release
+  - deploy
+
+cache:
+  paths:
+    - node_modules/
+    - dist/
+    - build/
+
+安装依赖:
+  stage: setup
+  cache:
+    paths:
+      - node_modules/
+  script:
+    - cnpm install --silent --no-optional
+  tags:
+    - 31-build-shell
+
+项目构建:
+  cache:
+    # paths:
+    #   - node_modules/
+    #   - dist/
+  stage: build
+  script:
+    - npm run build:pack
+  only:
+    - master
+    - develop
+    - /^beta\/.*$/
+    - /^release\/.*$/
+  tags:
+    - 31-build-shell
+
+发布文档:
+  stage: deploy
+  script:
+    - npm run doc:html
+    - mkdir -p $GITLAB_PAGES_SERVER_DIR/$CI_PROJECT_NAME
+    - rm -rf $GITLAB_PAGES_SERVER_DIR/$CI_PROJECT_NAME/*
+    - mv build/docs/* $GITLAB_PAGES_SERVER_DIR/$CI_PROJECT_NAME
+    - echo 'export SERVER_PATH = https://aliiot.on-bright.com:8090/$CI_PROJECT_NAME'
+    - echo '访问路径  $SERVER_PATH'
+  tags:
+    - 31-build-shell
+
+发布Release:
+  stage: release
+  only:
+    refs:
+    - master
+    - alpha
+    - /^(([0-9]+)\.)?([0-9]+)\.x/ # This matches maintenance branches
+    - /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+)?$/ # This matches pre-releases
+  before_script:
+    - cnpm i -D --silent semantic-release @commitlint/config-conventional @semantic-release/{commit-analyzer,git,changelog,gitlab-config,gitlab}
+  script:
+    - npx semantic-release
+  tags:
+    - 31-build-shell
+
+发布NPM:
+  stage: deploy
+  script:
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+    - npm publish
+  after_script:
+    - rm -rf node_modules
+  only:
+    - tags
+  tags:
+    - 31-build-shell
+  when: manual
